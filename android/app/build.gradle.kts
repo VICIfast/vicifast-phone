@@ -98,7 +98,7 @@ kotlin {
 
 dependencies {
     // Linphone SDK (Belledonne Communications) — provides liblinphone Java/Kotlin bindings + native libs
-    implementation("org.linphone:linphone-sdk-android:5.3.+")
+    implementation("org.linphone:linphone-sdk-android:5.4.127")
 
     // AndroidX
     implementation("androidx.core:core-ktx:1.13.1")
