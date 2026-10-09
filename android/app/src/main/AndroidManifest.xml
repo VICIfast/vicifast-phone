@@ -1,0 +1,168 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Networking -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+
+    <!-- Audio / Telephony -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.BLUETOOTH" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+    <!-- Ignore battery optimization (Doze). Lets the SIP foreground
+         service keep the registration alive when the screen is locked
+         for an extended period. User must explicitly allow via the
+         system dialog — manifest declaration alone doesn't grant it. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Foreground service for in-call session (locked screen / app backgrounded) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Idle SIP keep-alive service — runs while an account is registered so
+         the REGISTER socket stays open through Doze / lock screen. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SHOW_WHEN_LOCKED" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
+
+    <!-- Boot persistence (re-register SIP after device reboot) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- In-app update — agent grants per-app install permission once
+         (Settings → Install unknown apps), then we can fire the system
+         package-installer intent on the downloaded APK without going
+         through the Play Store. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <application
+        android:label="VICIfast"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Foreground service that keeps the SIP session alive.
+             - specialUse (Android 14+) or dataSync: idle/registered mode (no call active)
+             - phoneCall|microphone: during an active call -->
+        <service
+            android:name=".sip.SipForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall|microphone|dataSync|specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the agent's VoIP line registered so call-center calls can ring during a shift." />
+        </service>
+
+        <!-- Telecom ConnectionService — lock-screen incoming call UI -->
+        <service
+            android:name=".sip.SipConnectionService"
+            android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.telecom.ConnectionService" />
+            </intent-filter>
+        </service>
+
+        <!-- FCM receiver — VoIP wake-up via high-priority data messages -->
+        <service
+            android:name=".sip.VoipFcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Boot receiver — re-register SIP account on reboot -->
+        <receiver
+            android:name=".sip.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Action buttons fired from call-style notifications:
+             HANGUP fires from the in-call FGS notification, REJECT from
+             the incoming CallStyle notification's native Decline button.
+             ANSWER is NOT here — it launches MainActivity directly via a
+             getActivity PendingIntent (Android 12+ blocks the
+             receiver->startActivity trampoline), so the Activity handles
+             it, not this receiver.
+             android:exported="false" because only our own notifications
+             dispatch these intents — no third-party should be able to
+             invoke them. -->
+        <receiver
+            android:name=".sip.SipCallActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.vicifast.phone.action.HANGUP" />
+                <action android:name="io.vicifast.phone.action.REJECT" />
+            </intent-filter>
+        </receiver>
+
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+
+        <!-- FileProvider for the in-app update flow. The system
+             package-installer intent requires a content:// URI (not
+             file://) since Android 7. AndroidX FileProvider grants
+             the installer one-shot read access to the downloaded APK
+             without us needing any storage permissions. authority is
+             "<package>.fileprovider" — MainActivity.installApk uses
+             the same. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_provider_paths" />
+        </provider>
+    </application>
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Lets the "Source code" link in Me open the browser (Android 11+). -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+    </queries>
+</manifest>

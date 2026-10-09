@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Paths the FileProvider (declared in AndroidManifest.xml) is allowed
+  to expose via content:// URIs. We only need the app's external cache
+  dir — that's where UpdateService downloads the APK before handing
+  it off to the system package installer.
+
+  external-cache-path = getExternalCacheDir() (returned by
+  path_provider's getExternalCacheDirectories on Android). Path is
+  /sdcard/Android/data/<pkg>/cache, auto-cleaned by the OS under
+  storage pressure, no storage permission required.
+-->
+<paths>
+    <external-cache-path name="apk_cache" path="." />
+    <!-- Fallback when external storage is unavailable (Updater uses getTemporaryDirectory). -->
+    <cache-path name="apk_cache_internal" path="." />
+</paths>
